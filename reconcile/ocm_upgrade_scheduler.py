@@ -369,4 +369,4 @@ def run(dry_run, gitlab_project_id=None, thread_pool_size=10):
     desired_state = fetch_desired_state(clusters)
     version_history = get_version_history(dry_run, desired_state, ocm_map)
     diffs = calculate_diff(current_state, desired_state, ocm_map, version_history)
-    act(dry_run, diffs, ocm_map)
+    print(diffs)
