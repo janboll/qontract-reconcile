@@ -6,7 +6,7 @@ from datetime import datetime
 from collections import defaultdict
 from threading import Lock
 from dataclasses import dataclass
-from typing import Iterable, Mapping, Any
+from typing import Iterable, Mapping, Any, List
 
 from python_terraform import Terraform, IsFlagged, TerraformCommandError
 from sretoolbox.utils import retry
@@ -151,44 +151,53 @@ class TerraformClient:  # pylint: disable=too-many-public-methods
             self.created_users.extend(created_users)
         return disabled_deletions_detected, errors
 
-    @retry()
     def terraform_plan(
         self, plan_spec: dict, enable_deletion: bool
     ) -> tuple[bool, list[AccountUser], bool]:
+        disabled_deletion_detected = False
+        created_users: list[AccountUser] = []
         name = plan_spec["name"]
         tf = plan_spec["tf"]
         return_code, stdout, stderr = tf.plan(
             detailed_exitcode=False, parallelism=self.parallelism, out=name
         )
         error = self.check_output(name, "plan", return_code, stdout, stderr)
-        disabled_deletion_detected, created_users = self.log_plan_diff(
-            name, tf, enable_deletion
-        )
+        plan = self._get_json_plan(name, tf)
+
+        self._log_output_diff(name, plan)
+        resource_changes = plan.get("resource_changes")
+        if resource_changes is not None:
+            self._log_resource_diff(name, resource_changes)
+            created_users = self._get_created_users(name, resource_changes)
+            disabled_deletion_detected = self._detect_disabled_deletion(
+                name, resource_changes, enable_deletion
+            )
+            self._determine_should_apply(name, resource_changes)
+
         return disabled_deletion_detected, created_users, error
 
-    def log_plan_diff(
-        self, name: str, tf: Terraform, enable_deletion: bool
-    ) -> tuple[bool, list]:
-        disabled_deletion_detected = False
-        account_enable_deletion = self.accounts[name].get("enableDeletion") or False
+    def _get_json_plan(self, name: str, tf: Terraform) -> Mapping[str, Any]:
+        json_plan = self.terraform_show(name, tf.working_dir)
+        format_version = json_plan.get("format_version")
+        if format_version != ALLOWED_TF_SHOW_FORMAT_VERSION:
+            raise NotImplementedError("terraform show untested format version")
+        return json_plan
+
+    def _are_deletions_allowed(self, name: str, enable_deletion: bool) -> bool:
         # deletions are alowed
         # if enableDeletion is true for an account
         # or if the integration's enable_deletion is true
-        deletions_allowed = enable_deletion or account_enable_deletion
-        created_users: list[AccountUser] = []
+        account_enable_deletion = self.accounts[name].get("enableDeletion") or False
+        return enable_deletion or account_enable_deletion
 
-        output = self.terraform_show(name, tf.working_dir)
-        format_version = output.get("format_version")
-        if format_version != ALLOWED_TF_SHOW_FORMAT_VERSION:
-            raise NotImplementedError("terraform show untested format version")
-
+    def _log_output_diff(self, name: str, plan: Mapping[str, Any]):
         # https://www.terraform.io/docs/internals/json-format.html
         # Terraform is not yet fully able to
         # track changes to output values, so the actions indicated may not be
         # fully accurate, but the "after" value will always be correct.
         # to overcome the "before" value not being accurate,
         # we find it in the previously initiated outputs.
-        output_changes = output.get("output_changes", {})
+        output_changes = plan.get("output_changes", {})
         for output_name, output_change in output_changes.items():
             before = self.outputs[name].get(output_name, {}).get("value")
             after = output_change.get("after")
@@ -201,59 +210,48 @@ class TerraformClient:  # pylint: disable=too-many-public-methods
         # the output changes do not contain deleted outputs
         # while the prior state does. for the outputs to
         # actually be deleted, we should apply.
-        prior_outputs = (
-            output.get("prior_state", {}).get("values", {}).get("outputs", {})
-        )
+        prior_outputs = plan.get("prior_state", {}).get("values", {}).get("outputs", {})
         deleted_outputs = [po for po in prior_outputs if po not in output_changes]
         for output_name in deleted_outputs:
             logging.info(["delete", name, "output", output_name])
             self.should_apply = True
 
-        resource_changes = output.get("resource_changes")
-        if resource_changes is None:
-            return disabled_deletion_detected, created_users
+    @staticmethod
+    def _get_created_users(
+        name: str, resource_changes: List[Mapping[str, Any]]
+    ) -> list[AccountUser]:
+        created_users: list[AccountUser] = []
+        for resource_change in resource_changes:
+            resource_type = resource_change["type"]
+            resource_name = resource_change["name"]
+            actions = resource_change["change"]["actions"]
+            for action in actions:
+                if action == "create":
+                    if resource_type == "aws_iam_user_login_profile":
+                        created_users.append(AccountUser(name, resource_name))
 
+        return created_users
+
+    def _detect_disabled_deletion(
+        self,
+        name: str,
+        resource_changes: List[Mapping[str, Any]],
+        enable_deletions: bool,
+    ) -> bool:
         always_enabled_deletions = {
             "random_id",
             "aws_lb_target_group_attachment",
         }
-
-        # https://www.terraform.io/docs/internals/json-format.html
+        deletions_allowed = self._are_deletions_allowed(name, enable_deletions)
+        disabled_deletion_detected = False
         for resource_change in resource_changes:
             resource_type = resource_change["type"]
             resource_name = resource_change["name"]
-            resource_change = resource_change["change"]
-            actions = resource_change["actions"]
+            actions = resource_change["change"]["actions"]
             for action in actions:
-                if action == "no-op":
-                    logging.debug([action, name, resource_type, resource_name])
-                    continue
-                # Ignore RDS modifications that are going to occur during the next
-                # maintenance window. This can be up to 7 days away and will cause
-                # unnecessary Terraform state updates until they complete.
-                if (
-                    action == "update"
-                    and resource_type == "aws_db_instance"
-                    and self._is_ignored_rds_modification(
-                        name, resource_name, resource_change
-                    )
-                ):
-                    logging.debug(
-                        f"Not setting should_apply for {resource_name} because the "
-                        f"only change is EngineVersion and that setting is in "
-                        f"PendingModifiedValues"
-                    )
-                    continue
-                with self._log_lock:
-                    logging.info([action, name, resource_type, resource_name])
-                    self.should_apply = True
-                if action == "create":
-                    if resource_type == "aws_iam_user_login_profile":
-                        created_users.append(AccountUser(name, resource_name))
                 if action == "delete":
                     if resource_type in always_enabled_deletions:
                         continue
-
                     if not deletions_allowed and not self.deletion_approved(
                         name, resource_type, resource_name
                     ):
@@ -276,7 +274,48 @@ class TerraformClient:  # pylint: disable=too-many-public-methods
                                 "deletion_protection to false in a new MR. "
                                 "The new MR must be merged first."
                             )
-        return disabled_deletion_detected, created_users
+        return disabled_deletion_detected
+
+    def _determine_should_apply(
+        self, name: str, resource_changes: List[Mapping[str, Any]]
+    ):
+        for resource_change in resource_changes:
+            resource_type = resource_change["type"]
+            resource_name = resource_change["name"]
+            actions = resource_change["change"]["actions"]
+            for action in actions:
+                # Ignore RDS modifications that are going to occur during the next
+                # maintenance window. This can be up to 7 days away and will cause
+                # unnecessary Terraform state updates until they complete.
+                if (
+                    action == "update"
+                    and resource_type == "aws_db_instance"
+                    and self._is_ignored_rds_modification(
+                        name, resource_name, resource_change
+                    )
+                ):
+                    logging.debug(
+                        f"Not setting should_apply for {resource_name} because the "
+                        f"only change is EngineVersion and that setting is in "
+                        f"PendingModifiedValues"
+                    )
+                else:
+                    self.should_apply = True
+
+    def _log_resource_diff(
+        self, name: str, resource_changes: List[Mapping[str, Any]]
+    ) -> None:
+        # https://www.terraform.io/docs/internals/json-format.html
+        for resource_change in resource_changes:
+            resource_type = resource_change["type"]
+            resource_name = resource_change["name"]
+            actions = resource_change["change"]["actions"]
+            for action in actions:
+                if action == "no-op":
+                    logging.debug([action, name, resource_type, resource_name])
+                else:
+                    with self._log_lock:
+                        logging.info([action, name, resource_type, resource_name])
 
     def deletion_approved(self, account_name, resource_type, resource_name):
         account = self.accounts[account_name]
