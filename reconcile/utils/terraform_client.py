@@ -164,7 +164,7 @@ class TerraformClient:  # pylint: disable=too-many-public-methods
         error = self.check_output(name, "plan", return_code, stdout, stderr)
         plan = self._get_json_plan(name, tf)
 
-        self._log_output_diff(name, plan)
+        self._inspect_and_log_output_diff(name, plan)
         resource_changes = plan.get("resource_changes")
         if resource_changes is not None:
             self._log_resource_diff(name, resource_changes)
@@ -172,7 +172,7 @@ class TerraformClient:  # pylint: disable=too-many-public-methods
             disabled_deletion_detected = self._detect_disabled_deletion(
                 name, resource_changes, enable_deletion
             )
-            self._determine_should_apply(name, resource_changes)
+            self._determine_should_apply_resource_changes(name, resource_changes)
 
         return disabled_deletion_detected, created_users, error
 
@@ -190,7 +190,7 @@ class TerraformClient:  # pylint: disable=too-many-public-methods
         account_enable_deletion = self.accounts[name].get("enableDeletion") or False
         return enable_deletion or account_enable_deletion
 
-    def _log_output_diff(self, name: str, plan: Mapping[str, Any]):
+    def _inspect_and_log_output_diff(self, name: str, plan: Mapping[str, Any]):
         # https://www.terraform.io/docs/internals/json-format.html
         # Terraform is not yet fully able to
         # track changes to output values, so the actions indicated may not be
@@ -276,7 +276,7 @@ class TerraformClient:  # pylint: disable=too-many-public-methods
                             )
         return disabled_deletion_detected
 
-    def _determine_should_apply(
+    def _determine_should_apply_resource_changes(
         self, name: str, resource_changes: List[Mapping[str, Any]]
     ):
         for resource_change in resource_changes:

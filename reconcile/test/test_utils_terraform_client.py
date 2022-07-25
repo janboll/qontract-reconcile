@@ -296,7 +296,7 @@ def test_detect_disabled_deletion(tf):
     assert tf._detect_disabled_deletion("a1", resource_changes, True)
 
 
-def test_determine_should_apply(tf):
+def test_determine_should_apply_resource_changes(tf):
     assert tf.should_apply is False
 
     resource_changes = [
@@ -307,11 +307,12 @@ def test_determine_should_apply(tf):
         },
     ]
 
-    tf._determine_should_apply("a", resource_changes)
+    tf._determine_should_apply_resource_changes("a", resource_changes)
     assert tf.should_apply
 
 
-def test_determine_should_not_apply(tf, mocker):
+def test_determine_should_not_apply_resource_changes(tf, mocker):
+    tf._determine_should_apply_resource_changes("a", [])
     assert tf.should_apply is False
 
     resource_changes = [
@@ -326,5 +327,29 @@ def test_determine_should_not_apply(tf, mocker):
         return_value=True,
     )
 
-    tf._determine_should_apply("a", resource_changes)
+    tf._determine_should_apply_resource_changes("a", resource_changes)
     assert tf.should_apply is False
+
+
+def test_inspect_and_log_output_diff_changes(tf, mocker):
+    l = mocker.patch("logging.info")
+    tf._inspect_and_log_output_diff("a", {})
+    assert tf.should_apply is False
+
+    output_change = {"output_changes": {"foo": {"after": "new"}}}
+    tf.outputs = {"a": {"foo": {"value": "bar"}}}
+
+    tf._inspect_and_log_output_diff("a", output_change)
+    assert l.call_count == 1
+    l.assert_called_with(["update", "a", "output", "foo"])
+    assert tf.should_apply
+
+
+def test_inspect_and_log_output_diff_deletion(tf, mocker):
+    plan = {"output_changes": {}, "prior_state": {"values": {"outputs": {"foo"}}}}
+    l = mocker.patch("logging.info")
+
+    tf._inspect_and_log_output_diff("a", plan)
+    assert l.call_count == 1
+    l.assert_called_with(["delete", "a", "output", "foo"])
+    assert tf.should_apply
