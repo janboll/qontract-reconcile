@@ -332,7 +332,7 @@ def test_determine_should_not_apply_resource_changes(tf, mocker):
 
 
 def test_inspect_and_log_output_diff_changes(tf, mocker):
-    l = mocker.patch("logging.info")
+    logs = mocker.patch("logging.info")
     tf._inspect_and_log_output_diff("a", {})
     assert tf.should_apply is False
 
@@ -340,16 +340,16 @@ def test_inspect_and_log_output_diff_changes(tf, mocker):
     tf.outputs = {"a": {"foo": {"value": "bar"}}}
 
     tf._inspect_and_log_output_diff("a", output_change)
-    assert l.call_count == 1
-    l.assert_called_with(["update", "a", "output", "foo"])
+    assert logs.call_count == 1
+    logs.assert_called_with(["update", "a", "output", "foo"])
     assert tf.should_apply
 
 
 def test_inspect_and_log_output_diff_deletion(tf, mocker):
     plan = {"output_changes": {}, "prior_state": {"values": {"outputs": {"foo"}}}}
-    l = mocker.patch("logging.info")
+    logs = mocker.patch("logging.info")
 
     tf._inspect_and_log_output_diff("a", plan)
-    assert l.call_count == 1
-    l.assert_called_with(["delete", "a", "output", "foo"])
+    assert logs.call_count == 1
+    logs.assert_called_with(["delete", "a", "output", "foo"])
     assert tf.should_apply
