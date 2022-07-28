@@ -262,7 +262,7 @@ class TerraformClient:  # pylint: disable=too-many-public-methods
                             + "with the '--enable-deletion' flag."
                         )
                     if resource_type == "aws_db_instance":
-                        deletion_protected = resource_change["before"].get(
+                        deletion_protected = resource_change["change"]["before"].get(
                             "deletion_protection"
                         )
                         if deletion_protected:
@@ -291,7 +291,7 @@ class TerraformClient:  # pylint: disable=too-many-public-methods
                     action == "update"
                     and resource_type == "aws_db_instance"
                     and self._is_ignored_rds_modification(
-                        name, resource_name, resource_change
+                        name, resource_name, resource_change["change"]
                     )
                 ):
                     logging.debug(

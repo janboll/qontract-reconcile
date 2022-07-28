@@ -277,20 +277,24 @@ def test_detect_disabled_deletion(tf):
 
     resource_changes = [
         {
-            "change": {"actions": ["delete"]},
+            "change": {
+                "actions": ["delete"],
+                "before": {},
+            },
             "type": "aws_db_instance",
             "name": "bar",
-            "before": {},
         }
     ]
     assert tf._detect_disabled_deletion("a1", resource_changes, True) is False
 
     resource_changes = [
         {
-            "change": {"actions": ["delete"]},
+            "change": {
+                "actions": ["delete"],
+                "before": {"deletion_protection": True},
+            },
             "type": "aws_db_instance",
             "name": "bar",
-            "before": {"deletion_protection": True},
         }
     ]
     assert tf._detect_disabled_deletion("a1", resource_changes, True)
