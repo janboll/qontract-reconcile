@@ -1010,6 +1010,15 @@ def aws_ami_cleanup(ctx, thread_pool_size):
 
     run_integration(reconcile.aws_ami_cleanup.integration, ctx.obj, thread_pool_size)
 
+@integration.command(short_help="Manage AWS Resourecs")
+@threaded()
+@click.pass_context
+def aws_resources(ctx, thread_pool_size):
+    import reconcile.aws_resources.aws_resources
+
+    run_integration(reconcile.aws_resources.aws_resources, ctx.obj, thread_pool_size)
+
+
 
 @integration.command(short_help="Set up retention period for Cloudwatch logs.")
 @threaded()

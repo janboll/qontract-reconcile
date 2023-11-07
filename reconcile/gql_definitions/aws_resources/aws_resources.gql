@@ -1,0 +1,71 @@
+# qenerate: plugin=pydantic_v1
+
+# TODO: longterm our codebase should be able to work with pydantic's Json type
+# qenerate: map_gql_scalar=JSON -> str
+
+query AWSResourcesNamespaces {
+  namespaces: namespaces_v1 {
+    name
+    delete
+    clusterAdmin
+    managedExternalResources
+    externalResources {
+      provider
+      provisioner {
+        name
+      }
+      ... on  NamespaceAWSResourceProvider_v1{
+        resources {
+            output_format {
+            provider
+            ... on NamespaceAWSResourceGenericSecretOutputFormat_v1 {
+                data
+            }
+            }
+            provider
+
+            ... on NamespaceAWSResourceSQS_v1 {
+                region
+                identifier
+                output_resource_name
+                annotations
+                specs {
+                    defaults
+                    queues {
+                        key
+                        value
+                    }
+                }
+            }
+        }
+      }
+    }
+    environment {
+      name
+    }
+    app {
+      name
+    }
+    cluster {
+      name
+      serverUrl
+      insecureSkipTLSVerify
+      jumpHost {
+        ... CommonJumphostFields
+      }
+      automationToken {
+        ... VaultSecret
+      }
+      clusterAdminAutomationToken {
+        ... VaultSecret
+      }
+      spec {
+        region
+      }
+      internal
+      disable {
+        integrations
+      }
+    }
+  }
+}
