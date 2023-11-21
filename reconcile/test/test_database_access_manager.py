@@ -109,7 +109,7 @@ def _assert_create_script(script: str) -> None:
 
 def _assert_delete_script(script: str) -> None:
     assert (
-        '\n\\set ON_ERROR_STOP on\n\\c "test"\nDROP ROLE IF EXISTS "test";\\gexec'
+        '\n\\set ON_ERROR_STOP on\n\\c "test"\nREASSIGN OWNED BY "test" TO "test";\nDROP ROLE IF EXISTS "test";\\gexec'
         in script
     )
 

@@ -75,6 +75,9 @@ class PSQLScriptGenerator(BaseModel):
     def _get_user(self) -> str:
         return self.db_access.username
 
+    def _get_admin_user(self) -> str:
+        return self.connection_parameter.user
+
     def _generate_create_user(self) -> str:
         return f"""
 \\set ON_ERROR_STOP on
@@ -92,7 +95,7 @@ select 'CREATE ROLE "{self._get_user()}"  WITH LOGIN PASSWORD ''{self.connection
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{self._get_db()}');\\gexec
 
 -- rds specific, grant role to admin or create schema fails
-grant "{self._get_user()}" to postgres;
+grant "{self._get_user()}" to "{self._get_admin_user()}";
 CREATE SCHEMA IF NOT EXISTS "{self._get_user()}" AUTHORIZATION "{self._get_user()}";"""
 
     def _generate_db_access(self) -> str:
@@ -106,6 +109,7 @@ CREATE SCHEMA IF NOT EXISTS "{self._get_user()}" AUTHORIZATION "{self._get_user(
         return f"""
 \\set ON_ERROR_STOP on
 \\c "{self._get_db()}"
+REASSIGN OWNED BY "{self._get_user()}" TO "{self._get_admin_user()}";
 DROP ROLE IF EXISTS "{self._get_user()}";\\gexec"""
 
     def _generate_revoke_db_access(self) -> str:
