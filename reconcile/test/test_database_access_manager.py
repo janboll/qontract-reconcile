@@ -107,8 +107,19 @@ def _assert_create_script(script: str) -> None:
     assert "CREATE SCHEMA IF NOT EXISTS" in script
 
 
+def _assert_delete_script(script: str) -> None:
+    assert (
+        '\n\\set ON_ERROR_STOP on\n\\c "test"\nDROP ROLE IF EXISTS "test";\\gexec'
+        in script
+    )
+
+
 def _assert_grant_access(script: str) -> None:
     assert 'GRANT insert,select ON ALL TABLES IN SCHEMA "foo" TO "test"' in script
+
+
+def _assert_revoke_access(script: str) -> None:
+    assert '\nREVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA "foo" FROM "test";\n'
 
 
 def test_generate_create_user(
@@ -121,6 +132,18 @@ def test_generate_create_user(
     )
     script = s._generate_create_user()
     _assert_create_script(script)
+
+
+def test_generate_delete_user(
+    db_access: DatabaseAccessV1, db_connection_parameter: DatabaseConnectionParameters
+) -> None:
+    s = PSQLScriptGenerator(
+        db_access=db_access,
+        connection_parameter=db_connection_parameter,
+        engine="postgres",
+    )
+    script = s._generate_delete_user()
+    _assert_delete_script(script)
 
 
 def test_generate_access(
@@ -139,6 +162,22 @@ def test_generate_access(
     _assert_grant_access(script)
 
 
+def test_generate_revoke_access(
+    db_access: DatabaseAccessV1,
+    db_access_access: DatabaseAccessAccessV1,
+    db_connection_parameter: DatabaseConnectionParameters,
+):
+    db_access.access = [db_access_access]
+
+    s = PSQLScriptGenerator(
+        db_access=db_access,
+        connection_parameter=db_connection_parameter,
+        engine="postgres",
+    )
+    script = s._generate_revoke_db_access()
+    _assert_revoke_access(script)
+
+
 def test_generate_complete(
     db_access_complete: DatabaseAccessV1,
     db_connection_parameter: DatabaseConnectionParameters,
@@ -151,6 +190,21 @@ def test_generate_complete(
     script = s.generate_script()
     _assert_create_script(script)
     _assert_grant_access(script)
+
+
+def test_generate_delete_complete(
+    db_access_complete: DatabaseAccessV1,
+    db_connection_parameter: DatabaseConnectionParameters,
+):
+    db_access_complete.delete = True
+    s = PSQLScriptGenerator(
+        db_access=db_access_complete,
+        connection_parameter=db_connection_parameter,
+        engine="postgres",
+    )
+    script = s.generate_script()
+    _assert_delete_script(script)
+    _assert_revoke_access(script)
 
 
 def test_job_completion():

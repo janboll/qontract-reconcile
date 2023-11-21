@@ -102,9 +102,27 @@ CREATE SCHEMA IF NOT EXISTS "{self._get_user()}" AUTHORIZATION "{self._get_user(
             statements.append(statement)
         return "".join(statements)
 
+    def _generate_delete_user(self) -> str:
+        return f"""
+\\set ON_ERROR_STOP on
+\\c "{self._get_db()}"
+DROP ROLE IF EXISTS "{self._get_user()}";\\gexec"""
+
+    def _generate_revoke_db_access(self) -> str:
+        statements: list[str] = ["\n"]
+        for access in self.db_access.access or []:
+            statement = f'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA "{access.target.dbschema}" FROM "{self._get_user()}";\n'
+            statements.append(statement)
+        return "".join(statements)
+
     def generate_script(self) -> str:
-        x = self._generate_create_user() + "\n" + self._generate_db_access()
-        return x
+        if not self.db_access.delete:
+            script = self._generate_create_user() + "\n" + self._generate_db_access()
+        else:
+            script = (
+                self._generate_revoke_db_access() + "\n" + self._generate_delete_user()
+            )
+        return script
 
 
 def secret_head(name: str) -> dict[str, Any]:
