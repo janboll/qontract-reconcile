@@ -23,6 +23,7 @@ from reconcile.database_access_manager import (
 from reconcile.gql_definitions.terraform_resources.database_access_manager import (
     DatabaseAccessAccessV1,
     DatabaseAccessV1,
+    NamespaceV1,
 )
 from reconcile.utils.oc import OC_Map
 from reconcile.utils.openshift_resource import OpenshiftResource
@@ -50,6 +51,19 @@ def db_access_access(
             "grants": ["insert", "select"],
             "target": {
                 "dbschema": "foo",
+            },
+        },
+    )
+
+
+@pytest.fixture
+def db_access_namespace(gql_class_factory: Callable[..., NamespaceV1]) -> NamespaceV1:
+    return gql_class_factory(
+        NamespaceV1,
+        {
+            "name": "test-namespace",
+            "cluster": {
+                "name": "test-cluster",
             },
         },
     )
@@ -315,11 +329,6 @@ def dbam_state(mocker: MockerFixture) -> MockerFixture:
 
 
 @pytest.fixture
-def dbam_oc_map(mocker: MockerFixture) -> MockerFixture:
-    return mocker.patch("reconcile.database_access_manager.OC_Map", autospec=True)
-
-
-@pytest.fixture
 def dbam_process_mocks(
     openshift_resource_secet: OpenshiftResource, mocker: MockerFixture
 ) -> DBAMResource:
@@ -347,8 +356,8 @@ def ai_settings() -> dict[str, Any]:
 
 def test__process_db_access_job_pass(
     db_access: DatabaseAccessV1,
+    db_access_namespace: NamespaceV1,
     dbam_state: MagicMock,
-    dbam_oc_map: MagicMock,
     dbam_process_mocks: DBAMResource,
     mocker: MockerFixture,
     ai_settings: dict[str, Any],
@@ -356,7 +365,10 @@ def test__process_db_access_job_pass(
     dbam_state.exists.return_value = False
     oc = mocker.patch("reconcile.utils.oc.OCNative", autospec=True)
     oc.get.return_value = {"status": {"conditions": [{"type": "Complete"}]}}
-    dbam_oc_map.get_cluster.return_value = oc
+
+    oc_map = mocker.patch("reconcile.database_access_manager.OC_Map", autospec=True)
+    oc_map.return_value.__enter__.return_value = oc_map
+    oc_map.get_cluster.return_value = oc
 
     ob_delete = mocker.patch(
         "reconcile.database_access_manager.openshift_base.delete", autospec=True
@@ -366,9 +378,7 @@ def test__process_db_access_job_pass(
         False,
         dbam_state,
         db_access,
-        dbam_oc_map,
-        "test-cluster",
-        namespace_name="test-namepsace",
+        namespace=db_access_namespace,
         admin_secret_name="db-secret",
         engine="postgres",
         settings=ai_settings,
@@ -377,9 +387,9 @@ def test__process_db_access_job_pass(
     assert ob_delete.call_count == 1
     ob_delete.assert_called_once_with(
         dry_run=False,
-        oc_map=dbam_oc_map,
+        oc_map=oc_map,
         cluster="test-cluster",
-        namespace="test-namepsace",
+        namespace="test-namespace",
         resource_type="secret",
         name=dbam_process_mocks.resource.name,
         enable_deletion=True,
@@ -389,24 +399,23 @@ def test__process_db_access_job_pass(
 def test__process_db_access_job_error(
     db_access: DatabaseAccessV1,
     dbam_state: MagicMock,
-    dbam_oc_map: MagicMock,
+    db_access_namespace: NamespaceV1,
     dbam_process_mocks: DBAMResource,
     mocker: MockerFixture,
     ai_settings: dict[str, Any],
 ):
-    dbam_state.exists.return_value = False
     oc = mocker.patch("reconcile.utils.oc.OCNative", autospec=True)
     oc.get.return_value = {"status": {"conditions": [{"type": "Failed"}]}}
-    dbam_oc_map.get_cluster.return_value = oc
+    oc_map = mocker.patch("reconcile.database_access_manager.OC_Map", autospec=True)
+    oc_map.return_value.__enter__.return_value = oc_map
+    oc_map.get_cluster.return_value = oc
 
     with pytest.raises(JobFailedError):
         _process_db_access(
             False,
             dbam_state,
             db_access,
-            dbam_oc_map,
-            "test-cluster",
-            namespace_name="test-namepsace",
+            namespace=db_access_namespace,
             admin_secret_name="db-secret",
             engine="postgres",
             settings=ai_settings,
@@ -416,16 +425,17 @@ def test__process_db_access_job_error(
 def test__process_db_access_state_diff(
     db_access: DatabaseAccessV1,
     dbam_state: MagicMock,
-    dbam_oc_map: MagicMock,
+    db_access_namespace: NamespaceV1,
     dbam_process_mocks: DBAMResource,
     mocker: MockerFixture,
     ai_settings: dict[str, Any],
 ):
-    dbam_state.exists.return_value = True
     dbam_state.get.return_value = {}
     oc = mocker.patch("reconcile.utils.oc.OCNative", autospec=True)
     oc.get.return_value = False
-    dbam_oc_map.get_cluster.return_value = oc
+    oc_map = mocker.patch("reconcile.database_access_manager.OC_Map", autospec=True)
+    oc_map.return_value.__enter__.return_value = oc_map
+    oc_map.get_cluster.return_value = oc
 
     ob_apply = mocker.patch(
         "reconcile.database_access_manager.openshift_base.apply", autospec=True
@@ -434,9 +444,7 @@ def test__process_db_access_state_diff(
         False,
         dbam_state,
         db_access,
-        dbam_oc_map,
-        "test-cluster",
-        namespace_name="test-namepsace",
+        namespace=db_access_namespace,
         admin_secret_name="db-secret",
         engine="postgres",
         settings=ai_settings,
@@ -445,9 +453,9 @@ def test__process_db_access_state_diff(
     assert ob_apply.call_count == 1
     ob_apply.assert_called_once_with(
         dry_run=False,
-        oc_map=dbam_oc_map,
+        oc_map=oc_map,
         cluster="test-cluster",
-        namespace="test-namepsace",
+        namespace="test-namespace",
         resource_type="secret",
         resource=dbam_process_mocks.resource,
         wait_for_namespace=False,
@@ -456,8 +464,8 @@ def test__process_db_access_state_diff(
 
 def test__process_db_access_state_exists_matched(
     db_access: DatabaseAccessV1,
+    db_access_namespace: NamespaceV1,
     dbam_state: MagicMock,
-    dbam_oc_map: OC_Map,
 ):
     dbam_state.exists.return_value = True
     dbam_state.get.return_value = db_access.dict(by_alias=True)
@@ -466,9 +474,7 @@ def test__process_db_access_state_exists_matched(
         False,
         dbam_state,
         db_access,
-        dbam_oc_map,
-        "test-cluster",
-        namespace_name="test-namepsace",
+        namespace=db_access_namespace,
         admin_secret_name="db-secret",
         engine="postgres",
         settings=defaultdict(str),
