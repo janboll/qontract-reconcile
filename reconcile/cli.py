@@ -2790,6 +2790,25 @@ def change_owners(
         mr_management,
     )
 
+@integration.command(
+    short_help="Restricts updates on certain fields/schemas to certain users."
+)
+@click.option(
+    "--comparison-sha",
+    help="bundle sha to compare to to find changes",
+)
+@click.pass_context
+def change_admission(
+    ctx,
+    comparison_sha,
+):
+    import reconcile.change_owners.change_admission
+
+    run_integration(
+        reconcile.change_owners.change_admission,
+        ctx.obj,
+        comparison_sha,
+    )
 
 @integration.command(
     short_help="Configure and enforce glitchtip instance configuration."
