@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 
 from reconcile.change_owners.self_service_roles import fetch_self_service_roles
@@ -63,13 +64,22 @@ def run(
         f"with {sum(c.raw_diff_count() for c in changes)} differences "
         f"and {len([c for c in changes if c.metadata_only_change])} metadata-only changes"
     )
-    print(changes)
     cover_changes(
         changes,
         change_type_processors,
         comparison_gql_api,
     )
 
-    print(changes)
+    for change in changes:
+        for dc in change.diff_coverage:
+            for c in dc.coverage:
+                if c.change_type_processor.restrictive:
+                    approvers = { a.org_username for a in c.approvers}
+                    if os.environ["gitlabUserEmail"].split("@")[0] not in approvers:
+                        logging.error(
+                            f"change type {c.change_type_processor.name} "
+                            f"because {c.change_type_processor.restrictive}"
+                        )
+                        sys.exit(1)
 
 
