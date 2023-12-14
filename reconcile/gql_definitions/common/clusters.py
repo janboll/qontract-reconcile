@@ -728,7 +728,7 @@ class ClusterV1(ConfiguredBaseModel):
     name: str = Field(..., alias="name")
     server_url: str = Field(..., alias="serverUrl")
     console_url: str = Field(..., alias="consoleUrl")
-    kibana_url: str = Field(..., alias="kibanaUrl")
+    kibana_url: Optional[str] = Field(..., alias="kibanaUrl")
     elb_fqdn: str = Field(..., alias="elbFQDN")
     prometheus_url: str = Field(..., alias="prometheusUrl")
     managed_groups: Optional[list[str]] = Field(..., alias="managedGroups")

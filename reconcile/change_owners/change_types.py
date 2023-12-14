@@ -480,6 +480,7 @@ class ChangeTypeProcessor:
     context_type: BundleFileType
     context_schema: Optional[str]
     disabled: bool
+    restrictive: bool
     implicit_ownership: list[ChangeTypeImplicitOwnershipV1]
 
     def __post_init__(self) -> None:
@@ -722,6 +723,7 @@ def init_change_type_processors(
             context_type=BundleFileType[change_type.context_type.upper()],
             context_schema=change_type.context_schema,
             disabled=bool(change_type.disabled),
+            restrictive=bool(change_type.restrictive),
             implicit_ownership=change_type.implicit_ownership or [],
         )
         # register inheritance edges for cycle detection
